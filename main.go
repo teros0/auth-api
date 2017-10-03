@@ -37,10 +37,9 @@ func main() {
 func GetToken(w http.ResponseWriter, r *http.Request) {
 	key := r.Header.Get("Key")
 	responser := json.NewEncoder(w)
-	token := getToken(key)
+	token, value := getToken(key)
 
-	fmt.Println("Token", token)
-	if len(token) == 0 {
+	if token == "" {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -51,69 +50,56 @@ func GetToken(w http.ResponseWriter, r *http.Request) {
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
-
+	client.Set(token, value, 3*time.Hour)
 	responser.Encode(map[string]string{
 		"Access Key": key,
 		"Token":      token,
 	})
-
-	client.Set(key, token, 3*time.Hour)
 }
 
 func VerToken(w http.ResponseWriter, r *http.Request) {
-	key := r.Header.Get("Key")
-	token := getToken(key)
-	responser := json.NewEncoder(w)
+	token := r.Header.Get("Token")
 
-	fmt.Println("Token", token)
-	if len(token) == 0 {
-		w.WriteHeader(http.StatusUnauthorized)
-		responser.Encode(map[string]bool{
-			"Verified": false,
-		})
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	responser.Encode(map[string]bool{
-		"Verified": true,
-	})
-}
-
-func DelToken(w http.ResponseWriter, r *http.Request) {
-	key := r.Header.Get("Key")
-	token := getToken(key)
-
-	fmt.Println("Token", token)
-	if len(token) == 0 {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
 	client := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
-	client.Del(key)
+
+	exists := client.Exists(token).Val()
+	if exists == 0 {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
-func getToken(key string) (token string) {
+func DelToken(w http.ResponseWriter, r *http.Request) {
+	token := r.Header.Get("Token")
+
+	client := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+
+	client.Del(token)
+	w.WriteHeader(http.StatusOK)
+}
+
+func getToken(key string) (token, value string) {
 	db, err := sql.Open("postgres", psqlInfo)
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
-	var val string
-	fmt.Println("Executing true gettoken")
-	query := `SELECT auth.gettokentrue($1)`
-	rows, err := db.Query(query, key)
-	for rows.Next() {
-		rows.Scan(&token, &val)
-	}
-	fmt.Println("Results", token, val)
 
-	query = `SELECT auth.gettoken($1)`
-	db.QueryRow(query, key).Scan(&token)
+	query := `select token, value from auth.gettokentrue($1)`
+	err = db.QueryRow(query, key).Scan(&token, &value)
+
+	if err != nil {
+		fmt.Println("Query error", err)
+	}
 
 	return
 }
