@@ -37,6 +37,7 @@ func main() {
 func GetToken(w http.ResponseWriter, r *http.Request) {
 	key := r.Header.Get("Key")
 	responser := json.NewEncoder(w)
+
 	token, value := getToken(key)
 
 	if token == "" {
@@ -45,12 +46,10 @@ func GetToken(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 
-	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
+	client := getRedis()
+
 	client.Set(token, value, 3*time.Hour)
+
 	responser.Encode(map[string]string{
 		"Access Key": key,
 		"Token":      token,
@@ -60,11 +59,7 @@ func GetToken(w http.ResponseWriter, r *http.Request) {
 func VerToken(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("Token")
 
-	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
+	client := getRedis()
 
 	exists := client.Exists(token).Val()
 	if exists == 0 {
@@ -77,20 +72,24 @@ func VerToken(w http.ResponseWriter, r *http.Request) {
 func DelToken(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("Token")
 
-	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
+	client := getRedis()
 
 	client.Del(token)
 	w.WriteHeader(http.StatusOK)
 }
 
+func getRedis() *redis.Client {
+	return redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+}
+
 func getToken(key string) (token, value string) {
 	db, err := sql.Open("postgres", psqlInfo)
 	if err != nil {
-		panic(err)
+		log.Print(err.Error())
 	}
 	defer db.Close()
 
@@ -98,7 +97,7 @@ func getToken(key string) (token, value string) {
 	err = db.QueryRow(query, key).Scan(&token, &value)
 
 	if err != nil {
-		fmt.Println("Query error", err)
+		log.Print(err.Error())
 	}
 
 	return
