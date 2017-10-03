@@ -74,6 +74,11 @@ func DelToken(w http.ResponseWriter, r *http.Request) {
 
 	client := getRedis()
 
+	exists := client.Exists(token).Val()
+	if exists == 0 {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
 	client.Del(token)
 	w.WriteHeader(http.StatusOK)
 }
