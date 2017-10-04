@@ -79,6 +79,7 @@ func GetToken(w http.ResponseWriter, r *http.Request) {
 		"Access Key": key,
 		"Token":      token,
 	})
+	redisPool.Put(conn)
 }
 
 func VerToken(w http.ResponseWriter, r *http.Request) {
@@ -92,9 +93,10 @@ func VerToken(w http.ResponseWriter, r *http.Request) {
 
 	exists := conn.client.Exists(token).Val()
 	if exists == 0 {
-		http.Error(w, "Incorrect token", http.StatusBadRequest)
+		http.Error(w, "No such token", http.StatusBadRequest)
 		return
 	}
+	redisPool.Put(conn)
 }
 
 func DelToken(w http.ResponseWriter, r *http.Request) {
@@ -108,10 +110,11 @@ func DelToken(w http.ResponseWriter, r *http.Request) {
 
 	exists := conn.client.Exists(token).Val()
 	if exists == 0 {
-		http.Error(w, "Incorrect token", http.StatusBadRequest)
+		http.Error(w, "No such token", http.StatusBadRequest)
 		return
 	}
 	conn.client.Del(token)
+	redisPool.Put(conn)
 }
 
 func getRedis() redisConn {
