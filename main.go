@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-redis/redis"
@@ -24,6 +25,21 @@ const (
 var psqlInfo = fmt.Sprintf("host=%s port=%d user=%s "+
 	"password=%s dbname=%s sslmode=disable",
 	host, port, user, password, dbname)
+
+var redisOptions = &redis.Options{
+	Addr:     "localhost:6379",
+	Password: "", // no password set
+	DB:       0,  // use default DB
+}
+
+var redisPool = sync.Pool{
+	New: func() interface{} { return getRedis() },
+}
+
+type redisConn struct {
+	client *redis.Client
+	err    error
+}
 
 func main() {
 	router := mux.NewRouter()
@@ -48,13 +64,13 @@ func GetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := getRedis()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	conn := redisPool.Get().(redisConn)
+	if conn.err != nil {
+		http.Error(w, conn.err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	err = client.Set(token, value, 3*time.Hour).Err()
+	err = conn.client.Set(token, value, 3*time.Hour).Err()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -68,13 +84,13 @@ func GetToken(w http.ResponseWriter, r *http.Request) {
 func VerToken(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("Token")
 
-	client, err := getRedis()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	conn := redisPool.Get().(redisConn)
+	if conn.err != nil {
+		http.Error(w, conn.err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	exists := client.Exists(token).Val()
+	exists := conn.client.Exists(token).Val()
 	if exists == 0 {
 		http.Error(w, "Incorrect token", http.StatusBadRequest)
 		return
@@ -84,33 +100,30 @@ func VerToken(w http.ResponseWriter, r *http.Request) {
 func DelToken(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("Token")
 
-	client, err := getRedis()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	conn := redisPool.Get().(redisConn)
+	if conn.err != nil {
+		http.Error(w, conn.err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	exists := client.Exists(token).Val()
+	exists := conn.client.Exists(token).Val()
 	if exists == 0 {
 		http.Error(w, "Incorrect token", http.StatusBadRequest)
 		return
 	}
-	client.Del(token)
+	conn.client.Del(token)
 }
 
-func getRedis() (*redis.Client, error) {
-	cl := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
+func getRedis() redisConn {
+	var conn redisConn
+	conn.client = redis.NewClient(redisOptions)
 
-	_, err := cl.Ping().Result()
-	if err != nil {
-		log.Print(err.Error())
-		return nil, err
+	_, conn.err = conn.client.Ping().Result()
+	if conn.err != nil {
+		log.Print(conn.err.Error())
+		return conn
 	}
-	return cl, nil
+	return conn
 }
 
 func getToken(key string) (token, value string, err error) {
