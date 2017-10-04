@@ -41,7 +41,7 @@ func GetToken(w http.ResponseWriter, r *http.Request) {
 	token, value := getToken(key)
 
 	if token == "" {
-		w.WriteHeader(http.StatusUnauthorized)
+		http.Error(w, "Incorrect access key", http.StatusUnauthorized)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -63,7 +63,7 @@ func VerToken(w http.ResponseWriter, r *http.Request) {
 
 	exists := client.Exists(token).Val()
 	if exists == 0 {
-		w.WriteHeader(http.StatusUnauthorized)
+		http.Error(w, "Incorrect token", http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -76,7 +76,7 @@ func DelToken(w http.ResponseWriter, r *http.Request) {
 
 	exists := client.Exists(token).Val()
 	if exists == 0 {
-		w.WriteHeader(http.StatusUnauthorized)
+		http.Error(w, "Incorrect token", http.StatusBadRequest)
 		return
 	}
 	client.Del(token)
