@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"sync"
@@ -14,20 +15,31 @@ import (
 	_ "github.com/lib/pq"
 )
 
-const (
-	host     = "localhost"
-	port     = 5432
-	user     = "postgres"
-	password = "123post"
-	dbname   = "postgres"
-)
-
-var psqlInfo = fmt.Sprintf("host=%s port=%d user=%s "+
-	"password=%s dbname=%s sslmode=disable",
-	host, port, user, password, dbname)
+type Config struct {
+	Host          string        `json:"host"`
+	Port          int           `json:"port"`
+	User          string        `json:"user"`
+	Password      string        `json:"password"`
+	DBname        string        `json:"dbname"`
+	LiveTimeHours time.Duration `json:"liveTimeHours"`
+}
 
 var redisPool = sync.Pool{
 	New: func() interface{} { return getRedis() },
+}
+var conf = initializeConfig()
+
+func initializeConfig() *Config {
+	raw, err := ioutil.ReadFile("./config.json")
+	if err != nil {
+		fmt.Println("Cannot read file", err)
+	}
+
+	var c Config
+	if err := json.Unmarshal(raw, &c); err != nil {
+		fmt.Println(err)
+	}
+	return &c
 }
 
 func main() {
@@ -65,13 +77,14 @@ func GetToken(w http.ResponseWriter, r *http.Request, client *redis.Client) {
 		return
 	}
 
-	if err = client.Set(token, value, 3*time.Hour).Err(); err != nil {
+	if err = client.Set(token, value, conf.LiveTimeHours*time.Hour).Err(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{
 		"accessKey": key,
 		"token":     token,
+		"data":      value,
 	})
 }
 
@@ -110,7 +123,9 @@ func getRedis() *redis.Client {
 }
 
 func getToken(key string) (token, value string, err error) {
-	db, err := sql.Open("postgres", psqlInfo)
+	db, err := sql.Open("postgres", fmt.Sprintf("host=%s port=%d user=%s "+
+		"password=%s dbname=%s sslmode=disable",
+		conf.Host, conf.Port, conf.User, conf.Password, conf.DBname))
 	if err != nil {
 		log.Print(err.Error())
 		return
