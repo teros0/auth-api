@@ -43,16 +43,27 @@ type redisConn struct {
 
 func main() {
 	router := mux.NewRouter()
-	router.HandleFunc("/get-token/", GetToken).Methods("GET")
-	router.HandleFunc("/ver-token/", VerToken).Methods("GET")
-	router.HandleFunc("/del-token/", DelToken).Methods("DELETE")
+	router.HandleFunc("/get-token/", makeHandler(GetToken)).Methods("GET")
+	router.HandleFunc("/ver-token/", makeHandler(VerToken)).Methods("GET")
+	router.HandleFunc("/del-token/", makeHandler(DelToken)).Methods("DELETE")
 	log.Fatal(http.ListenAndServe(":8000", router))
 }
 
-// GetToken
-func GetToken(w http.ResponseWriter, r *http.Request) {
+func makeHandler(fn func(http.ResponseWriter, *http.Request, redisConn)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conn := redisPool.Get().(redisConn)
+		if conn.err != nil {
+			http.Error(w, conn.err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer redisPool.Put(conn)
+		fn(w, r, conn)
+	}
+}
+
+// GetToken checks if an Access Key is in db and, is so, writes it to Redis
+func GetToken(w http.ResponseWriter, r *http.Request, conn redisConn) {
 	key := r.Header.Get("Key")
-	responser := json.NewEncoder(w)
 
 	token, value, err := getToken(key)
 	if err != nil {
@@ -64,57 +75,36 @@ func GetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn := redisPool.Get().(redisConn)
-	if conn.err != nil {
-		http.Error(w, conn.err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	err = conn.client.Set(token, value, 3*time.Hour).Err()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
-	responser.Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]string{
 		"Access Key": key,
 		"Token":      token,
 	})
-	redisPool.Put(conn)
 }
 
-func VerToken(w http.ResponseWriter, r *http.Request) {
+// VerToken verifies given token by checking it's existence in Redis
+func VerToken(w http.ResponseWriter, r *http.Request, conn redisConn) {
 	token := r.Header.Get("Token")
-
-	conn := redisPool.Get().(redisConn)
-	if conn.err != nil {
-		http.Error(w, conn.err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	exists := conn.client.Exists(token).Val()
 	if exists == 0 {
 		http.Error(w, "No such token", http.StatusBadRequest)
 		return
 	}
-	redisPool.Put(conn)
 }
 
-func DelToken(w http.ResponseWriter, r *http.Request) {
+// DelToken deletes given token from Redis
+func DelToken(w http.ResponseWriter, r *http.Request, conn redisConn) {
 	token := r.Header.Get("Token")
-
-	conn := redisPool.Get().(redisConn)
-	if conn.err != nil {
-		http.Error(w, conn.err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	exists := conn.client.Exists(token).Val()
 	if exists == 0 {
 		http.Error(w, "No such token", http.StatusBadRequest)
 		return
 	}
 	conn.client.Del(token)
-	redisPool.Put(conn)
 }
 
 func getRedis() redisConn {
