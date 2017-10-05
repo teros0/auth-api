@@ -61,7 +61,8 @@ func makeHandler(fn func(http.ResponseWriter, *http.Request, redisConn)) http.Ha
 	}
 }
 
-// GetToken checks if an Access Key is in db and, is so, writes it to Redis
+// GetToken retrieves a token corresponding to an Access Key
+// and writes this token to Redis
 func GetToken(w http.ResponseWriter, r *http.Request, conn redisConn) {
 	key := r.Header.Get("Key")
 
@@ -81,8 +82,8 @@ func GetToken(w http.ResponseWriter, r *http.Request, conn redisConn) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{
-		"Access Key": key,
-		"Token":      token,
+		"accessKey": key,
+		"token":     token,
 	})
 }
 
