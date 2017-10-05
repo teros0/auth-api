@@ -26,19 +26,8 @@ var psqlInfo = fmt.Sprintf("host=%s port=%d user=%s "+
 	"password=%s dbname=%s sslmode=disable",
 	host, port, user, password, dbname)
 
-var redisOptions = &redis.Options{
-	Addr:     "localhost:6379",
-	Password: "", // no password set
-	DB:       0,  // use default DB
-}
-
 var redisPool = sync.Pool{
 	New: func() interface{} { return getRedis() },
-}
-
-type redisConn struct {
-	client *redis.Client
-	err    error
 }
 
 func main() {
@@ -49,11 +38,11 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8000", router))
 }
 
-func makeHandler(fn func(http.ResponseWriter, *http.Request, redisConn)) http.HandlerFunc {
+func makeHandler(fn func(http.ResponseWriter, *http.Request, *redis.Client)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		conn := redisPool.Get().(redisConn)
-		if conn.err != nil {
-			http.Error(w, conn.err.Error(), http.StatusInternalServerError)
+		conn := redisPool.Get().(*redis.Client)
+		if conn == nil {
+			http.Error(w, "Redis problems", http.StatusInternalServerError)
 			return
 		}
 		defer redisPool.Put(conn)
@@ -63,7 +52,7 @@ func makeHandler(fn func(http.ResponseWriter, *http.Request, redisConn)) http.Ha
 
 // GetToken retrieves a token corresponding to an Access Key
 // and writes this token to Redis
-func GetToken(w http.ResponseWriter, r *http.Request, conn redisConn) {
+func GetToken(w http.ResponseWriter, r *http.Request, client *redis.Client) {
 	key := r.Header.Get("Key")
 
 	token, value, err := getToken(key)
@@ -76,8 +65,7 @@ func GetToken(w http.ResponseWriter, r *http.Request, conn redisConn) {
 		return
 	}
 
-	err = conn.client.Set(token, value, 3*time.Hour).Err()
-	if err != nil {
+	if err = client.Set(token, value, 3*time.Hour).Err(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
@@ -88,36 +76,37 @@ func GetToken(w http.ResponseWriter, r *http.Request, conn redisConn) {
 }
 
 // VerToken verifies given token by checking it's existence in Redis
-func VerToken(w http.ResponseWriter, r *http.Request, conn redisConn) {
+func VerToken(w http.ResponseWriter, r *http.Request, client *redis.Client) {
 	token := r.Header.Get("Token")
-	exists := conn.client.Exists(token).Val()
-	if exists == 0 {
+	if exists := client.Exists(token).Val(); exists == 0 {
 		http.Error(w, "No such token", http.StatusBadRequest)
 		return
 	}
 }
 
 // DelToken deletes given token from Redis
-func DelToken(w http.ResponseWriter, r *http.Request, conn redisConn) {
+func DelToken(w http.ResponseWriter, r *http.Request, client *redis.Client) {
 	token := r.Header.Get("Token")
-	exists := conn.client.Exists(token).Val()
-	if exists == 0 {
+	if exists := client.Exists(token).Val(); exists == 0 {
 		http.Error(w, "No such token", http.StatusBadRequest)
 		return
 	}
-	conn.client.Del(token)
+	client.Del(token)
 }
 
-func getRedis() redisConn {
-	var conn redisConn
-	conn.client = redis.NewClient(redisOptions)
+func getRedis() *redis.Client {
+	client := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
 
-	_, conn.err = conn.client.Ping().Result()
-	if conn.err != nil {
-		log.Print(conn.err.Error())
-		return conn
+	_, err := client.Ping().Result()
+	if err != nil {
+		log.Print(err.Error())
+		return nil
 	}
-	return conn
+	return client
 }
 
 func getToken(key string) (token, value string, err error) {
@@ -129,8 +118,7 @@ func getToken(key string) (token, value string, err error) {
 	defer db.Close()
 
 	query := `select token, value from auth.gettokentrue($1)`
-	err = db.QueryRow(query, key).Scan(&token, &value)
-	if err != nil {
+	if err = db.QueryRow(query, key).Scan(&token, &value); err != nil {
 		log.Print(err.Error())
 		return
 	}

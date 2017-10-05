@@ -94,3 +94,32 @@ func TestDel(t *testing.T) {
 		}
 	}
 }
+
+var client = &http.Client{}
+var url = "http://localhost:8000/get-token/"
+var req = func() *http.Request {
+	r, _ := http.NewRequest("GET", url, nil)
+	r.Header.Set("Key", "123")
+	return r
+}()
+
+func BenchmarkGet(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		resp, _ := client.Do(req)
+		defer resp.Body.Close()
+	}
+}
+
+var url1 = "http://localhost:8000/ver-token/"
+var req1 = func() *http.Request {
+	r, _ := http.NewRequest("GET", url1, nil)
+	r.Header.Set("Token", "321")
+	return r
+}()
+
+func BenchmarkVer(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		resp, _ := client.Do(req1)
+		defer resp.Body.Close()
+	}
+}
