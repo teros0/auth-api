@@ -24,6 +24,11 @@ type Config struct {
 	LiveTimeHours time.Duration `json:"liveTimeHours"`
 }
 
+type JResp struct {
+	Token string          `json:"token"`
+	Value json.RawMessage `json:"value"`
+}
+
 var redisPool = sync.Pool{
 	New: func() interface{} { return getRedis() },
 }
@@ -67,34 +72,31 @@ func makeHandler(fn func(http.ResponseWriter, *http.Request, *redis.Client)) htt
 func GetToken(w http.ResponseWriter, r *http.Request, client *redis.Client) {
 	key := r.Header.Get("Key")
 
-	token, value, err := getToken(key)
+	resp, err := getToken(key)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
-	if token == "" {
+	if resp.Token == "" {
 		http.Error(w, "Incorrect access key", http.StatusUnauthorized)
 		return
 	}
 
-	if err = client.Set(token, value, conf.LiveTimeHours*time.Hour).Err(); err != nil {
+	if err = client.Set(resp.Token, string(resp.Value), conf.LiveTimeHours*time.Hour).Err(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-
-	json.NewEncoder(w).Encode(map[string]string{
-		"accessKey": key,
-		"token":     token,
-		"data":      value,
-	})
+	json.NewEncoder(w).Encode(resp)
 }
 
 // VerToken verifies given token by checking it's existence in Redis
 func VerToken(w http.ResponseWriter, r *http.Request, client *redis.Client) {
 	token := r.Header.Get("Token")
-	if exists := client.Exists(token).Val(); exists == 0 {
+	val := client.Get(token).Val()
+	if val == "" {
 		http.Error(w, "No such token", http.StatusBadRequest)
 		return
 	}
+	w.Write([]byte(val))
 }
 
 // DelToken deletes given token from Redis
@@ -122,7 +124,7 @@ func getRedis() *redis.Client {
 	return client
 }
 
-func getToken(key string) (token, value string, err error) {
+func getToken(key string) (resp JResp, err error) {
 	db, err := sql.Open("postgres", fmt.Sprintf("host=%s port=%d user=%s "+
 		"password=%s dbname=%s sslmode=disable",
 		conf.Host, conf.Port, conf.User, conf.Password, conf.DBname))
@@ -133,7 +135,7 @@ func getToken(key string) (token, value string, err error) {
 	defer db.Close()
 
 	query := `select token, value from auth.gettokentrue($1)`
-	if err = db.QueryRow(query, key).Scan(&token, &value); err != nil {
+	if err = db.QueryRow(query, key).Scan(&resp.Token, &resp.Value); err != nil {
 		log.Print(err.Error())
 		return
 	}

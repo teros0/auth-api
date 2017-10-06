@@ -11,8 +11,8 @@ func TestGet(t *testing.T) {
 		key  string
 		code int
 	}{
-		{"123", 200},
-		{"222", 200},
+		{"1", 200},
+		{"2", 200},
 		{"asdf", 401},
 		{"12345", 401},
 	}
@@ -40,8 +40,8 @@ func TestVer(t *testing.T) {
 		token string
 		code  int
 	}{
-		{"321", 200},
-		{"333", 200},
+		{"1key", 200},
+		{"2key", 200},
 		{"asdf", 400},
 		{"12345", 400},
 	}
@@ -69,12 +69,12 @@ func TestDel(t *testing.T) {
 		token string
 		code  int
 	}{
-		{"321", 200},
-		{"333", 200},
+		{"1key", 200},
+		{"2key", 200},
 		{"asdf", 400},
 		{"12345", 400},
-		{"321", 400}, // Deleting previously deleted token
-		{"333", 400},
+		{"2key", 400}, // Deleting previously deleted token
+		{"1key", 400},
 	}
 	client := &http.Client{}
 	url := "http://localhost:8000/del-token/"
