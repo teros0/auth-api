@@ -1,18 +1,29 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"testing"
 )
+
+type JSONResp struct {
+	Token string `json:"token"`
+	Value `json:"value"`
+}
+
+type Value struct {
+	AccessKey string `json:"access_key"`
+}
 
 func TestGet(t *testing.T) {
 	var tests = []struct {
 		key  string
 		code int
 	}{
-		{"1", 200},
-		{"2", 200},
+		{"1key", 200},
+		{"2key", 200},
 		{"asdf", 401},
 		{"12345", 401},
 	}
@@ -35,13 +46,60 @@ func TestGet(t *testing.T) {
 	}
 }
 
+func TestGetJSON(t *testing.T) {
+	var tests = []struct {
+		key   string
+		token string
+	}{
+		{"1key", "1token"},
+		{"2key", "2token"},
+		{"3key", "3token"},
+		{"4key", "4token"},
+		{"asfdg", ""},
+		{"4kee", ""},
+		{"wrong", ""},
+		{"lkbdsf", ""},
+	}
+
+	client := &http.Client{}
+	url := "http://localhost:8000/get-token/"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	for _, test := range tests {
+		jsonResp := JSONResp{}
+		req.Header.Set("Key", test.key)
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Println(err)
+		}
+		defer resp.Body.Close()
+		r, _ := ioutil.ReadAll(resp.Body)
+		json.Unmarshal(r, &jsonResp)
+		if err != nil {
+			t.Error(err)
+		}
+		if jsonResp.AccessKey != test.key {
+			if jsonResp.AccessKey != "" {
+				t.Errorf("Sent access key (%s) got %s", test.key, jsonResp.AccessKey)
+			}
+		}
+
+		if jsonResp.Token != test.token {
+			t.Errorf("Sent token (%s) got %s", test.token, jsonResp.Token)
+		}
+	}
+}
+
 func TestVer(t *testing.T) {
 	var tests = []struct {
 		token string
 		code  int
 	}{
-		{"1key", 200},
-		{"2key", 200},
+		{"1token", 200},
+		{"2token", 200},
 		{"asdf", 400},
 		{"12345", 400},
 	}
@@ -69,8 +127,8 @@ func TestDel(t *testing.T) {
 		token string
 		code  int
 	}{
-		{"1key", 200},
-		{"2key", 200},
+		{"1token", 200},
+		{"2token", 200},
 		{"asdf", 400},
 		{"12345", 400},
 		{"2key", 400}, // Deleting previously deleted token

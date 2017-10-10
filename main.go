@@ -85,6 +85,7 @@ func GetToken(w http.ResponseWriter, r *http.Request, client *redis.Client) {
 	if err = client.Set(resp.Token, string(resp.Value), conf.LiveTimeHours*time.Hour).Err(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
 
@@ -97,6 +98,7 @@ func VerToken(w http.ResponseWriter, r *http.Request, client *redis.Client) {
 		return
 	}
 	w.Write([]byte(val))
+	w.Header().Set("Content-Type", "application/json")
 }
 
 // DelToken deletes given token from Redis
