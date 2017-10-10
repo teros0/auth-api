@@ -122,6 +122,39 @@ func TestVer(t *testing.T) {
 	}
 }
 
+func TestVerJSON(t *testing.T) {
+	var tests = map[string]string{
+		"1token":    "1key",
+		"2token":    "2key",
+		"3token":    "3key",
+		"4token":    "4key",
+		"dsfbd":     "",
+		"4to124ken": "",
+		"4toweken":  "",
+	}
+	client := &http.Client{}
+	url := "http://localhost:8000/ver-token/"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		fmt.Println(err)
+	}
+	for token, key := range tests {
+		val := Value{}
+		req.Header.Set("Token", token)
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Println(err)
+		}
+		defer resp.Body.Close()
+		r, _ := ioutil.ReadAll(resp.Body)
+		json.Unmarshal(r, &val)
+
+		if val.AccessKey != key {
+			t.Errorf("Sent token %s, expected key %s got %s", token, key, val.AccessKey)
+		}
+	}
+}
+
 func TestDel(t *testing.T) {
 	var tests = []struct {
 		token string
